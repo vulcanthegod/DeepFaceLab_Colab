@@ -66,7 +66,6 @@ class InteractiveMergerSubprocessor(Subprocessor):
             self.predictor_func = client_dict['predictor_func']
             self.predictor_input_shape = client_dict['predictor_input_shape']
             self.face_enhancer_func = client_dict['face_enhancer_func']
-            self.fanseg_full_face_256_extract_func = client_dict['fanseg_full_face_256_extract_func']
             self.xseg_256_extract_func = client_dict['xseg_256_extract_func']
 
 
@@ -85,14 +84,19 @@ class InteractiveMergerSubprocessor(Subprocessor):
             filepath = frame_info.filepath
 
             if len(frame_info.landmarks_list) == 0:
-                self.log_info (f'no faces found for {filepath.name}, copying without faces')
-
-                img_bgr = cv2_imread(filepath)
-                imagelib.normalize_channels(img_bgr, 3)
+                
+                if cfg.mode == 'raw-predict':        
+                    h,w,c = self.predictor_input_shape
+                    img_bgr = np.zeros( (h,w,3), dtype=np.uint8)
+                    img_mask = np.zeros( (h,w,1), dtype=np.uint8)               
+                else:                
+                    self.log_info (f'no faces found for {filepath.name}, copying without faces')
+                    img_bgr = cv2_imread(filepath)
+                    imagelib.normalize_channels(img_bgr, 3)                    
+                    h,w,c = img_bgr.shape
+                    img_mask = np.zeros( (h,w,1), dtype=img_bgr.dtype)
+                    
                 cv2_imwrite (pf.output_filepath, img_bgr)
-                h,w,c = img_bgr.shape
-
-                img_mask = np.zeros( (h,w,1), dtype=img_bgr.dtype)
                 cv2_imwrite (pf.output_mask_filepath, img_mask)
 
                 if pf.need_return_image:
@@ -103,7 +107,6 @@ class InteractiveMergerSubprocessor(Subprocessor):
                     try:
                         final_img = MergeMasked (self.predictor_func, self.predictor_input_shape,
                                                  face_enhancer_func=self.face_enhancer_func,
-                                                 fanseg_full_face_256_extract_func=self.fanseg_full_face_256_extract_func,
                                                  xseg_256_extract_func=self.xseg_256_extract_func,
                                                  cfg=cfg,
                                                  frame_info=frame_info)
@@ -137,7 +140,7 @@ class InteractiveMergerSubprocessor(Subprocessor):
 
 
     #override
-    def __init__(self, is_interactive, merger_session_filepath, predictor_func, predictor_input_shape, face_enhancer_func, fanseg_full_face_256_extract_func, xseg_256_extract_func, merger_config, frames, frames_root_path, output_path, output_mask_path, model_iter):
+    def __init__(self, is_interactive, merger_session_filepath, predictor_func, predictor_input_shape, face_enhancer_func, xseg_256_extract_func, merger_config, frames, frames_root_path, output_path, output_mask_path, model_iter):
         if len (frames) == 0:
             raise ValueError ("len (frames) == 0")
 
@@ -151,7 +154,6 @@ class InteractiveMergerSubprocessor(Subprocessor):
         self.predictor_input_shape = predictor_input_shape
 
         self.face_enhancer_func = face_enhancer_func
-        self.fanseg_full_face_256_extract_func = fanseg_full_face_256_extract_func
         self.xseg_256_extract_func = xseg_256_extract_func
 
         self.frames_root_path = frames_root_path
@@ -273,7 +275,6 @@ class InteractiveMergerSubprocessor(Subprocessor):
                                       'predictor_func': self.predictor_func,
                                       'predictor_input_shape' : self.predictor_input_shape,
                                       'face_enhancer_func': self.face_enhancer_func,
-                                      'fanseg_full_face_256_extract_func' : self.fanseg_full_face_256_extract_func,
                                       'xseg_256_extract_func' : self.xseg_256_extract_func,
                                       'stdin_fd': sys.stdin.fileno() if MERGER_DEBUG else None
                                       }
@@ -304,6 +305,7 @@ class InteractiveMergerSubprocessor(Subprocessor):
                     '3' : lambda cfg,shift_pressed: cfg.set_mode(3),
                     '4' : lambda cfg,shift_pressed: cfg.set_mode(4),
                     '5' : lambda cfg,shift_pressed: cfg.set_mode(5),
+                    '6' : lambda cfg,shift_pressed: cfg.set_mode(6),
                     'q' : lambda cfg,shift_pressed: cfg.add_hist_match_threshold(1 if not shift_pressed else 5),
                     'a' : lambda cfg,shift_pressed: cfg.add_hist_match_threshold(-1 if not shift_pressed else -5),
                     'w' : lambda cfg,shift_pressed: cfg.add_erode_mask_modifier(1 if not shift_pressed else 5),
@@ -391,6 +393,7 @@ class InteractiveMergerSubprocessor(Subprocessor):
                                     # unable to read? recompute then
                                     cur_frame.is_done = False
                                 else:
+                                    image = imagelib.normalize_channels(image, 3)
                                     image_mask = imagelib.normalize_channels(image_mask, 1)
                                     cur_frame.image = np.concatenate([image, image_mask], -1)
 

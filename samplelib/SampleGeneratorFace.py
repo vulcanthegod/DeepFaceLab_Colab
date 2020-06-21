@@ -1,5 +1,4 @@
 import multiprocessing
-import pickle
 import time
 import traceback
 
@@ -7,6 +6,7 @@ import cv2
 import numpy as np
 
 from core import mplib
+from core.interact import interact as io
 from core.joblib import SubprocessGenerator, ThisThreadGenerator
 from facelib import LandmarksProcessor
 from samplelib import (SampleGeneratorBase, SampleLoader, SampleProcessor,
@@ -25,15 +25,15 @@ class SampleGeneratorFace(SampleGeneratorBase):
                         random_ct_samples_path=None,
                         sample_process_options=SampleProcessor.Options(),
                         output_sample_types=[],
-                        add_sample_idx=False,
+                        uniform_yaw_distribution=False,
                         generators_count=4,
-                        raise_on_no_data=True,
+                        raise_on_no_data=True,                        
                         **kwargs):
 
         super().__init__(debug, batch_size)
+        self.initialized = False
         self.sample_process_options = sample_process_options
         self.output_sample_types = output_sample_types
-        self.add_sample_idx = add_sample_idx
         
         if self.debug:
             self.generators_count = 1
@@ -42,15 +42,40 @@ class SampleGeneratorFace(SampleGeneratorBase):
 
         samples = SampleLoader.load (SampleType.FACE, samples_path)
         self.samples_len = len(samples)
-
-        self.initialized = False
+        
         if self.samples_len == 0:
             if raise_on_no_data:
                 raise ValueError('No training data provided.')
             else:
                 return
+                
+        if uniform_yaw_distribution:
+            samples_pyr = [ ( idx, sample.get_pitch_yaw_roll() ) for idx, sample in enumerate(samples) ]
+            
+            grads = 128
+            #instead of math.pi / 2, using -1.2,+1.2 because actually maximum yaw for 2DFAN landmarks are -1.2+1.2
+            grads_space = np.linspace (-1.2, 1.2,grads)
 
-        index_host = mplib.IndexHost(self.samples_len)
+            yaws_sample_list = [None]*grads
+            for g in io.progress_bar_generator ( range(grads), "Sort by yaw"):
+                yaw = grads_space[g]
+                next_yaw = grads_space[g+1] if g < grads-1 else yaw
+
+                yaw_samples = []
+                for idx, pyr in samples_pyr:
+                    s_yaw = -pyr[1]
+                    if (g == 0          and s_yaw < next_yaw) or \
+                    (g < grads-1     and s_yaw >= yaw and s_yaw < next_yaw) or \
+                    (g == grads-1    and s_yaw >= yaw):
+                        yaw_samples += [ idx ]
+                if len(yaw_samples) > 0:
+                    yaws_sample_list[g] = yaw_samples
+            
+            yaws_sample_list = [ y for y in yaws_sample_list if y is not None ]
+            
+            index_host = mplib.Index2DHost( yaws_sample_list )
+        else:
+            index_host = mplib.IndexHost(self.samples_len)
 
         if random_ct_samples_path is not None:
             ct_samples = SampleLoader.load (SampleType.FACE, random_ct_samples_path)
@@ -59,13 +84,10 @@ class SampleGeneratorFace(SampleGeneratorBase):
             ct_samples = None
             ct_index_host = None
 
-        pickled_samples = pickle.dumps(samples, 4)
-        ct_pickled_samples = pickle.dumps(ct_samples, 4) if ct_samples is not None else None
-
         if self.debug:
-            self.generators = [ThisThreadGenerator ( self.batch_func, (pickled_samples, index_host.create_cli(), ct_pickled_samples, ct_index_host.create_cli() if ct_index_host is not None else None) )]
+            self.generators = [ThisThreadGenerator ( self.batch_func, (samples, index_host.create_cli(), ct_samples, ct_index_host.create_cli() if ct_index_host is not None else None) )]
         else:
-            self.generators = [SubprocessGenerator ( self.batch_func, (pickled_samples, index_host.create_cli(), ct_pickled_samples, ct_index_host.create_cli() if ct_index_host is not None else None), start_now=False ) \
+            self.generators = [SubprocessGenerator ( self.batch_func, (samples, index_host.create_cli(), ct_samples, ct_index_host.create_cli() if ct_index_host is not None else None), start_now=False ) \
                                for i in range(self.generators_count) ]
                                
             SubprocessGenerator.start_in_parallel( self.generators )
@@ -90,11 +112,8 @@ class SampleGeneratorFace(SampleGeneratorBase):
         return next(generator)
 
     def batch_func(self, param ):
-        pickled_samples, index_host, ct_pickled_samples, ct_index_host = param
-        
-        samples = pickle.loads(pickled_samples)
-        ct_samples = pickle.loads(ct_pickled_samples) if ct_pickled_samples is not None else None
-
+        samples, index_host, ct_samples, ct_index_host = param
+ 
         bs = self.batch_size
         while True:
             batches = None
@@ -118,14 +137,8 @@ class SampleGeneratorFace(SampleGeneratorBase):
 
                 if batches is None:
                     batches = [ [] for _ in range(len(x)) ]
-                    if self.add_sample_idx:
-                        batches += [ [] ]
-                        i_sample_idx = len(batches)-1
 
                 for i in range(len(x)):
                     batches[i].append ( x[i] )
-
-                if self.add_sample_idx:
-                    batches[i_sample_idx].append (sample_idx)
 
             yield [ np.array(batch) for batch in batches]

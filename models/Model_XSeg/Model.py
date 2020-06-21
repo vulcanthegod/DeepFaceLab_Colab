@@ -7,7 +7,7 @@ import numpy as np
 from core import mathlib
 from core.interact import interact as io
 from core.leras import nn
-from facelib import FaceType, TernausNet, XSegNet
+from facelib import FaceType, XSegNet
 from models import ModelBase
 from samplelib import *
 
@@ -17,8 +17,20 @@ class XSegModel(ModelBase):
         super().__init__(*args, force_model_class_name='XSeg', **kwargs)
         
     #override
-    def on_initialize_options(self):
-        self.set_batch_size(4)   
+    def on_initialize_options(self):        
+        ask_override = self.ask_override()
+
+        if not self.is_first_run() and ask_override:     
+            if io.input_bool(f"Restart training?", False, help_message="Reset model weights and start training from scratch."):
+                self.set_iter(0)
+
+        default_face_type          = self.options['face_type']          = self.load_or_def_option('face_type', 'wf')
+        
+        if self.is_first_run():
+            self.options['face_type'] = io.input_str ("Face type", default_face_type, ['h','mf','f','wf','head'], help_message="Half / mid face / full face / whole face / head. Choose the same as your deepfake model.").lower()
+
+        if self.is_first_run() or ask_override:
+            self.ask_batch_size(4, range=[2,16])           
         
     #override
     def on_initialize(self):
@@ -31,7 +43,13 @@ class XSegModel(ModelBase):
         devices = device_config.devices
 
         self.resolution = resolution = 256
-        self.face_type = FaceType.WHOLE_FACE
+
+        
+        self.face_type = {'h'  : FaceType.HALF,
+                          'mf' : FaceType.MID_FULL,
+                          'f'  : FaceType.FULL,
+                          'wf' : FaceType.WHOLE_FACE,
+                          'head' : FaceType.HEAD}[ self.options['face_type'] ]
         
         place_model_on_cpu = len(devices) == 0
         models_opt_device = '/CPU:0' if place_model_on_cpu else '/GPU:0'
@@ -40,7 +58,7 @@ class XSegModel(ModelBase):
         mask_shape = nn.get4Dshape(resolution,resolution,1)
  
         # Initializing model classes
-        self.model = XSegNet(name=f'XSeg', 
+        self.model = XSegNet(name='XSeg', 
                                resolution=resolution, 
                                load_weights=not self.is_first_run(),
                                weights_file_root=self.get_model_root_path(),

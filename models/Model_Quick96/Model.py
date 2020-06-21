@@ -22,8 +22,9 @@ class QModel(ModelBase):
         resolution = self.resolution = 96
         self.face_type = FaceType.FULL
         ae_dims = 128
-        e_dims = 128
+        e_dims = 64
         d_dims = 64
+        d_mask_dims = 16
         self.pretrain = False
         self.pretrain_just_disabled = False
 
@@ -39,7 +40,7 @@ class QModel(ModelBase):
 
         self.model_filename_list = []
         
-        model_archi = nn.DeepFakeArchi(resolution, mod='quick')
+        model_archi = nn.DeepFakeArchi(resolution, opts='ud')
 
         with tf.device ('/CPU:0'):
             #Place holders on CPU
@@ -57,11 +58,11 @@ class QModel(ModelBase):
             self.encoder = model_archi.Encoder(in_ch=input_ch, e_ch=e_dims, name='encoder')
             encoder_out_ch = self.encoder.compute_output_channels ( (nn.floatx, bgr_shape))
 
-            self.inter = model_archi.Inter (in_ch=encoder_out_ch, ae_ch=ae_dims, ae_out_ch=ae_dims, d_ch=d_dims, name='inter')
+            self.inter = model_archi.Inter (in_ch=encoder_out_ch, ae_ch=ae_dims, ae_out_ch=ae_dims, name='inter')
             inter_out_ch = self.inter.compute_output_channels ( (nn.floatx, (None,encoder_out_ch)))
 
-            self.decoder_src = model_archi.Decoder(in_ch=inter_out_ch, d_ch=d_dims, name='decoder_src')
-            self.decoder_dst = model_archi.Decoder(in_ch=inter_out_ch, d_ch=d_dims, name='decoder_dst')
+            self.decoder_src = model_archi.Decoder(in_ch=inter_out_ch, d_ch=d_dims, d_mask_ch=d_mask_dims, name='decoder_src')
+            self.decoder_dst = model_archi.Decoder(in_ch=inter_out_ch, d_ch=d_dims, d_mask_ch=d_mask_dims, name='decoder_dst')
 
             self.model_filename_list += [ [self.encoder,     'encoder.npy'    ],
                                           [self.inter,       'inter.npy'      ],
@@ -308,8 +309,7 @@ class QModel(ModelBase):
         face = nn.to_data_format(face[None,...], self.model_data_format, "NHWC")
 
         bgr, mask_dst_dstm, mask_src_dstm = [ nn.to_data_format(x, "NHWC", self.model_data_format).astype(np.float32) for x in self.AE_merge (face) ]
-        mask = mask_dst_dstm[0] * mask_src_dstm[0]
-        return bgr[0], mask[...,0]
+        return bgr[0], mask_src_dstm[0][...,0], mask_dst_dstm[0][...,0]
 
     #override
     def get_MergerConfig(self):

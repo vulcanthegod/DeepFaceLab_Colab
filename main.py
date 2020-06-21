@@ -22,6 +22,8 @@ if __name__ == "__main__":
         def __call__(self, parser, namespace, values, option_string=None):
             setattr(namespace, self.dest, os.path.abspath(os.path.expanduser(values)))
 
+    exit_code = 0
+    
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
 
@@ -46,7 +48,7 @@ if __name__ == "__main__":
     p.add_argument('--output-dir', required=True, action=fixPathAction, dest="output_dir", help="Output directory. This is where the extracted files will be stored.")
     p.add_argument('--output-debug', action="store_true", dest="output_debug", default=None, help="Writes debug images to <output-dir>_debug\ directory.")
     p.add_argument('--no-output-debug', action="store_false", dest="output_debug", default=None, help="Don't writes debug images to <output-dir>_debug\ directory.")
-    p.add_argument('--face-type', dest="face_type", choices=['half_face', 'full_face', 'whole_face', 'head', 'full_face_no_align', 'mark_only'], default='full_face', help="Default 'full_face'. Don't change this option, currently all models uses 'full_face'")
+    p.add_argument('--face-type', dest="face_type", choices=['half_face', 'full_face', 'whole_face', 'head', 'mark_only'], default=None)
     p.add_argument('--manual-fix', action="store_true", dest="manual_fix", default=False, help="Enables manual extract only frames where faces were not recognized.")
     p.add_argument('--manual-output-debug-fix', action="store_true", dest="manual_output_debug_fix", default=False, help="Performs manual reextract input-dir frames which were deleted from [output_dir]_debug\ dir.")
     p.add_argument('--manual-window-size', type=int, dest="manual_window_size", default=1368, help="Manual fix window size. Default: 1368.")
@@ -75,12 +77,6 @@ if __name__ == "__main__":
         if arguments.recover_original_aligned_filename:
             Util.recover_original_aligned_filename (input_path=arguments.input_dir)
 
-        #if arguments.remove_fanseg:
-        #    Util.remove_fanseg_folder (input_path=arguments.input_dir)
-
-        if arguments.remove_ie_polys:
-            Util.remove_ie_polys_folder (input_path=arguments.input_dir)
-
         if arguments.save_faceset_metadata:
             Util.save_faceset_metadata_folder (input_path=arguments.input_dir)
 
@@ -101,8 +97,6 @@ if __name__ == "__main__":
     p.add_argument('--input-dir', required=True, action=fixPathAction, dest="input_dir", help="Input directory. A directory containing the files you wish to process.")
     p.add_argument('--add-landmarks-debug-images', action="store_true", dest="add_landmarks_debug_images", default=False, help="Add landmarks debug image for aligned faces.")
     p.add_argument('--recover-original-aligned-filename', action="store_true", dest="recover_original_aligned_filename", default=False, help="Recover original aligned filename.")
-    #p.add_argument('--remove-fanseg', action="store_true", dest="remove_fanseg", default=False, help="Remove fanseg mask from aligned faces.")
-    p.add_argument('--remove-ie-polys', action="store_true", dest="remove_ie_polys", default=False, help="Remove ie_polys from aligned faces.")
     p.add_argument('--save-faceset-metadata', action="store_true", dest="save_faceset_metadata", default=False, help="Save faceset metadata to file.")
     p.add_argument('--restore-faceset-metadata', action="store_true", dest="restore_faceset_metadata", default=False, help="Restore faceset metadata to file. Image filenames must be the same as used with save.")
     p.add_argument('--pack-faceset', action="store_true", dest="pack_faceset", default=False, help="")
@@ -124,6 +118,7 @@ if __name__ == "__main__":
                   'force_model_name'         : arguments.force_model_name,
                   'force_gpu_idxs'           : [ int(x) for x in arguments.force_gpu_idxs.split(',') ] if arguments.force_gpu_idxs is not None else None,
                   'cpu_only'                 : arguments.cpu_only,
+                  'silent_start'             : arguments.silent_start,
                   'execute_programs'         : [ [int(x[0]), x[1] ] for x in arguments.execute_program ],
                   'debug'                    : arguments.debug,
                   }
@@ -142,6 +137,9 @@ if __name__ == "__main__":
     p.add_argument('--force-model-name', dest="force_model_name", default=None, help="Forcing to choose model name from model/ folder.")
     p.add_argument('--cpu-only', action="store_true", dest="cpu_only", default=False, help="Train on CPU.")
     p.add_argument('--force-gpu-idxs', dest="force_gpu_idxs", default=None, help="Force to choose GPU indexes separated by comma.")
+    p.add_argument('--silent-start', action="store_true", dest="silent_start", default=False, help="Silent start. Automatically chooses Best GPU and last used model.")
+    
+    
     p.add_argument('--execute-program', dest="execute_program", default=[], action='append', nargs='+')
     p.set_defaults (func=process_train)
 
@@ -232,19 +230,6 @@ if __name__ == "__main__":
 
     p.set_defaults(func=process_videoed_video_from_sequence)
 
-    def process_labelingtool_edit_mask(arguments):
-        from mainscripts import MaskEditorTool
-        MaskEditorTool.mask_editor_main (arguments.input_dir, arguments.confirmed_dir, arguments.skipped_dir, no_default_mask=arguments.no_default_mask)
-
-    labeling_parser = subparsers.add_parser( "labelingtool", help="Labeling tool.").add_subparsers()
-    p = labeling_parser.add_parser ( "edit_mask", help="")
-    p.add_argument('--input-dir', required=True, action=fixPathAction, dest="input_dir", help="Input directory of aligned faces.")
-    p.add_argument('--confirmed-dir', required=True, action=fixPathAction, dest="confirmed_dir", help="This is where the labeled faces will be stored.")
-    p.add_argument('--skipped-dir', required=True, action=fixPathAction, dest="skipped_dir", help="This is where the labeled faces will be stored.")
-    p.add_argument('--no-default-mask', action="store_true", dest="no_default_mask", default=False, help="Don't use default mask.")
-
-    p.set_defaults(func=process_labelingtool_edit_mask)
-
     facesettool_parser = subparsers.add_parser( "facesettool", help="Faceset tools.").add_subparsers()
 
     def process_faceset_enhancer(arguments):
@@ -271,28 +256,59 @@ if __name__ == "__main__":
     p.add_argument('--input-dir', required=True, action=fixPathAction, dest="input_dir")
     p.set_defaults (func=process_dev_test)
     
-    # ========== XSeg util
-    xseg_parser = subparsers.add_parser( "xseg", help="XSeg utils.").add_subparsers()
-
-    def process_xseg_merge(arguments):
-        osex.set_process_lowest_prio()
-        from mainscripts import XSegUtil
-        XSegUtil.merge(arguments.input_dir)
-    p = xseg_parser.add_parser( "merge", help="")
-    p.add_argument('--input-dir', required=True, action=fixPathAction, dest="input_dir")
-
-    p.set_defaults (func=process_xseg_merge)
+    # ========== XSeg
+    xseg_parser = subparsers.add_parser( "xseg", help="XSeg tools.").add_subparsers()
     
-    def process_xseg_split(arguments):
-        osex.set_process_lowest_prio()
-        from mainscripts import XSegUtil
-        XSegUtil.split(arguments.input_dir)
+    p = xseg_parser.add_parser( "editor", help="XSeg editor.")
 
-    p = xseg_parser.add_parser( "split", help="")
+    def process_xsegeditor(arguments):
+        osex.set_process_lowest_prio()
+        from XSegEditor import XSegEditor
+        global exit_code
+        exit_code = XSegEditor.start (Path(arguments.input_dir))
+        
     p.add_argument('--input-dir', required=True, action=fixPathAction, dest="input_dir")
 
-    p.set_defaults (func=process_xseg_split)
+    p.set_defaults (func=process_xsegeditor)
+  
+    p = xseg_parser.add_parser( "apply", help="Apply trained XSeg model to the extracted faces.")
 
+    def process_xsegapply(arguments):
+        osex.set_process_lowest_prio()
+        from mainscripts import XSegUtil
+        XSegUtil.apply_xseg (Path(arguments.input_dir), Path(arguments.model_dir))
+    p.add_argument('--input-dir', required=True, action=fixPathAction, dest="input_dir")
+    p.add_argument('--model-dir', required=True, action=fixPathAction, dest="model_dir")
+    p.set_defaults (func=process_xsegapply)
+    
+    
+    p = xseg_parser.add_parser( "remove", help="Remove applied XSeg masks from the extracted faces.")
+    def process_xsegremove(arguments):
+        osex.set_process_lowest_prio()
+        from mainscripts import XSegUtil
+        XSegUtil.remove_xseg (Path(arguments.input_dir) )
+    p.add_argument('--input-dir', required=True, action=fixPathAction, dest="input_dir")
+    p.set_defaults (func=process_xsegremove)
+    
+    
+    p = xseg_parser.add_parser( "remove_labels", help="Remove XSeg labels from the extracted faces.")
+    def process_xsegremovelabels(arguments):
+        osex.set_process_lowest_prio()
+        from mainscripts import XSegUtil
+        XSegUtil.remove_xseg_labels (Path(arguments.input_dir) )
+    p.add_argument('--input-dir', required=True, action=fixPathAction, dest="input_dir")
+    p.set_defaults (func=process_xsegremovelabels)
+    
+    
+    p = xseg_parser.add_parser( "fetch", help="Copies faces containing XSeg polygons in <input_dir>_xseg dir.")
+
+    def process_xsegfetch(arguments):
+        osex.set_process_lowest_prio()
+        from mainscripts import XSegUtil
+        XSegUtil.fetch_xseg (Path(arguments.input_dir) )
+    p.add_argument('--input-dir', required=True, action=fixPathAction, dest="input_dir")
+    p.set_defaults (func=process_xsegfetch)
+    
     def bad_args(arguments):
         parser.print_help()
         exit(0)
@@ -301,7 +317,10 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
     arguments.func(arguments)
 
-    print ("Done.")
+    if exit_code == 0:
+        print ("Done.")
+        
+    exit(exit_code)
     
 '''
 import code
