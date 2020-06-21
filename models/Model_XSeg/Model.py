@@ -17,7 +17,9 @@ class XSegModel(ModelBase):
         super().__init__(*args, force_model_class_name='XSeg', **kwargs)
         
     #override
-    def on_initialize_options(self):        
+    def on_initialize_options(self):
+        self.set_batch_size(4)   
+        
         ask_override = self.ask_override()
 
         if not self.is_first_run() and ask_override:     
@@ -28,9 +30,7 @@ class XSegModel(ModelBase):
         
         if self.is_first_run():
             self.options['face_type'] = io.input_str ("Face type", default_face_type, ['h','mf','f','wf','head'], help_message="Half / mid face / full face / whole face / head. Choose the same as your deepfake model.").lower()
-
-        if self.is_first_run() or ask_override:
-            self.ask_batch_size(4, range=[2,16])           
+           
         
     #override
     def on_initialize(self):

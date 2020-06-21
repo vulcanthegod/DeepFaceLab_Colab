@@ -1,15 +1,13 @@
-import sys
 import traceback
 
 import cv2
 import numpy as np
 
 from core import imagelib
-from core.cv2ex import *
-from core.interact import interact as io
 from facelib import FaceType, LandmarksProcessor
+from core.interact import interact as io
+from core.cv2ex import *
 
-is_windows = sys.platform[0:3] == 'win'
 xseg_input_size = 256
 
 def MergeMaskedFace (predictor_func, predictor_input_shape,
@@ -151,7 +149,7 @@ def MergeMaskedFace (predictor_func, predictor_input_shape,
 
         out_img = np.clip (out_img, 0.0, 1.0 )
     else:
-
+                
         # Process if the mask meets minimum size
         maxregion = np.argwhere( img_face_mask_a >= 0.1 )
         if maxregion.size != 0:
@@ -162,7 +160,7 @@ def MergeMaskedFace (predictor_func, predictor_input_shape,
             if min(lenx,leny) >= 4:
                 wrk_face_mask_area_a = wrk_face_mask_a.copy()
                 wrk_face_mask_area_a[wrk_face_mask_area_a>0] = 1.0
-
+                
                 if 'seamless' not in cfg.mode and cfg.color_transfer_mode != 0:
                     if cfg.color_transfer_mode == 1: #rct
                         prd_face_bgr = imagelib.reinhard_color_transfer ( np.clip( prd_face_bgr*wrk_face_mask_area_a*255, 0, 255).astype(np.uint8),
@@ -309,7 +307,7 @@ def MergeMaskedFace (predictor_func, predictor_input_shape,
                         out_img = (out_img*(1.0-alpha) + out_img_reduced*alpha)
         else:
             out_img = img_bgr.copy()
-
+            
         out_merging_mask_a = img_face_mask_a
 
     return out_img, out_merging_mask_a
