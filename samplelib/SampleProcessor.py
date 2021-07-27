@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 from core import imagelib
+from core.cv2ex import *
 from core.imagelib import sd
 from facelib import FaceType, LandmarksProcessor
 
@@ -95,6 +96,7 @@ class SampleProcessor(object):
                 sample_type    = opts.get('sample_type', SPST.NONE)
                 channel_type   = opts.get('channel_type', SPCT.NONE)                
                 resolution     = opts.get('resolution', 0)
+                nearest_resize_to = opts.get('nearest_resize_to', None)
                 warp           = opts.get('warp', False)
                 transform      = opts.get('transform', False)
                 motion_blur    = opts.get('motion_blur', None)
@@ -144,14 +146,14 @@ class SampleProcessor(object):
                             img = cv2.warpAffine( img, mat, (warp_resolution, warp_resolution), flags=cv2.INTER_LINEAR )
                             
                             img = imagelib.warp_by_params (params_per_resolution[resolution], img, warp, transform, can_flip=True, border_replicate=border_replicate, cv2_inter=cv2.INTER_LINEAR)
-                            img = cv2.resize( img, (resolution,resolution), cv2.INTER_LINEAR )
+                            img = cv2.resize( img, (resolution,resolution), interpolation=cv2.INTER_LINEAR )
                         else:
                             if face_type != sample_face_type:
                                 mat = LandmarksProcessor.get_transform_mat (sample_landmarks, resolution, face_type)                            
                                 img = cv2.warpAffine( img, mat, (resolution,resolution), borderMode=borderMode, flags=cv2.INTER_LINEAR )
                             else:
                                 if w != resolution:
-                                    img = cv2.resize( img, (resolution, resolution), cv2.INTER_CUBIC )
+                                    img = cv2.resize( img, (resolution, resolution), interpolation=cv2.INTER_LINEAR )
                                 
                             img = imagelib.warp_by_params (params_per_resolution[resolution], img, warp, transform, can_flip=True, border_replicate=border_replicate, cv2_inter=cv2.INTER_LINEAR)
 
@@ -180,13 +182,13 @@ class SampleProcessor(object):
                             img = cv2.warpAffine( img, mat, (resolution,resolution), borderMode=borderMode, flags=cv2.INTER_CUBIC )
                         else:
                             if w != resolution:
-                                img = cv2.resize( img, (resolution, resolution), cv2.INTER_CUBIC )
+                                img = cv2.resize( img, (resolution, resolution), interpolation=cv2.INTER_CUBIC )
                                 
                         # Apply random color transfer                        
                         if ct_mode is not None and ct_sample is not None:
                             if ct_sample_bgr is None:
                                ct_sample_bgr = ct_sample.load_bgr()
-                            img = imagelib.color_transfer (ct_mode, img, cv2.resize( ct_sample_bgr, (resolution,resolution), cv2.INTER_LINEAR ) )
+                            img = imagelib.color_transfer (ct_mode, img, cv2.resize( ct_sample_bgr, (resolution,resolution), interpolation=cv2.INTER_LINEAR ) )
 
                         
                         img  = imagelib.warp_by_params (params_per_resolution[resolution], img,  warp, transform, can_flip=True, border_replicate=border_replicate)
@@ -219,6 +221,9 @@ class SampleProcessor(object):
                             out_sample = np.repeat ( np.expand_dims(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY),-1), (3,), -1)
 
                     # Final transformations
+                    if nearest_resize_to is not None:
+                        out_sample = cv2_resize(out_sample, (nearest_resize_to,nearest_resize_to), interpolation=cv2.INTER_NEAREST)
+                        
                     if not debug:
                         if normalize_tanh:
                             out_sample = np.clip (out_sample * 2.0 - 1.0, -1.0, 1.0)
@@ -227,7 +232,7 @@ class SampleProcessor(object):
                 elif sample_type == SPST.IMAGE:
                     img = sample_bgr      
                     img  = imagelib.warp_by_params (params_per_resolution[resolution], img,  warp, transform, can_flip=True, border_replicate=True)
-                    img  = cv2.resize( img,  (resolution, resolution), cv2.INTER_CUBIC )
+                    img  = cv2.resize( img,  (resolution, resolution), interpolation=cv2.INTER_CUBIC )
                     out_sample = img
                     
                     if data_format == "NCHW":
