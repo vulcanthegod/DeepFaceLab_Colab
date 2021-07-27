@@ -32,7 +32,7 @@ def trainerThread (s2c, c2s, e,
         try:
             start_time = time.time()
 
-            save_interval_min = 15
+            save_interval_min = 25
 
             if not training_data_src_path.exists():
                 training_data_src_path.mkdir(exist_ok=True, parents=True)
@@ -42,7 +42,7 @@ def trainerThread (s2c, c2s, e,
 
             if not saved_models_path.exists():
                 saved_models_path.mkdir(exist_ok=True, parents=True)
-
+                            
             model = models.import_model(model_class_name)(
                         is_training=True,
                         saved_models_path=saved_models_path,
@@ -55,8 +55,7 @@ def trainerThread (s2c, c2s, e,
                         force_gpu_idxs=force_gpu_idxs,
                         cpu_only=cpu_only,
                         silent_start=silent_start,
-                        debug=debug,
-                        )
+                        debug=debug)
 
             is_reached_goal = model.is_reached_iter_goal()
 

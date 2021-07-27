@@ -57,7 +57,9 @@ def MergeMaskedFace (predictor_func, predictor_input_shape,
         prd_face_mask_a_0     = cv2.resize (prd_face_mask_a_0,      (output_size, output_size), interpolation=cv2.INTER_CUBIC)
         prd_face_dst_mask_a_0 = cv2.resize (prd_face_dst_mask_a_0,  (output_size, output_size), interpolation=cv2.INTER_CUBIC)
 
-    if cfg.mask_mode == 1: #dst
+    if cfg.mask_mode == 0: #full
+        wrk_face_mask_a_0 = np.ones_like(dst_face_mask_a_0)
+    elif cfg.mask_mode == 1: #dst
         wrk_face_mask_a_0 = cv2.resize (dst_face_mask_a_0, (output_size,output_size), interpolation=cv2.INTER_CUBIC)
     elif cfg.mask_mode == 2: #learned-prd
         wrk_face_mask_a_0 = prd_face_mask_a_0
@@ -142,7 +144,9 @@ def MergeMaskedFace (predictor_func, predictor_input_shape,
 
     elif 'raw' in cfg.mode:
         if cfg.mode == 'raw-rgb':
-            out_img = cv2.warpAffine( prd_face_bgr, face_output_mat, img_size, img_bgr.copy(), cv2.WARP_INVERSE_MAP | cv2.INTER_CUBIC, cv2.BORDER_TRANSPARENT )
+            out_img_face = cv2.warpAffine( prd_face_bgr, face_output_mat, img_size, np.empty_like(img_bgr), cv2.WARP_INVERSE_MAP | cv2.INTER_CUBIC)
+            out_img_face_mask = cv2.warpAffine( np.ones_like(prd_face_bgr), face_output_mat, img_size, np.empty_like(img_bgr), cv2.WARP_INVERSE_MAP | cv2.INTER_CUBIC)
+            out_img = img_bgr*(1-out_img_face_mask) + out_img_face*out_img_face_mask
             out_merging_mask_a = img_face_mask_a
         elif cfg.mode == 'raw-predict':
             out_img = prd_face_bgr
@@ -214,7 +218,7 @@ def MergeMaskedFace (predictor_func, predictor_input_shape,
                         img_face_seamless_mask_a[img_face_seamless_mask_a <= i / 10.0] = 0.0
                         break
 
-                out_img = cv2.warpAffine( prd_face_bgr, face_output_mat, img_size, np.empty_like(img_bgr), cv2.WARP_INVERSE_MAP | cv2.INTER_CUBIC, cv2.BORDER_TRANSPARENT )
+                out_img = cv2.warpAffine( prd_face_bgr, face_output_mat, img_size, np.empty_like(img_bgr), cv2.WARP_INVERSE_MAP | cv2.INTER_CUBIC )
                 out_img = np.clip(out_img, 0.0, 1.0)
 
                 if 'seamless' in cfg.mode:
@@ -297,7 +301,7 @@ def MergeMaskedFace (predictor_func, predictor_input_shape,
                         img_bgr_downscaled = cv2.resize (img_bgr, ( int(img_size[0]*p), int(img_size[1]*p ) ), interpolation=cv2.INTER_CUBIC)
                         img_bgr = cv2.resize (img_bgr_downscaled, img_size, interpolation=cv2.INTER_CUBIC)
 
-                    new_out = cv2.warpAffine( out_face_bgr, face_mat, img_size, np.empty_like(img_bgr), cv2.WARP_INVERSE_MAP | cv2.INTER_CUBIC, cv2.BORDER_TRANSPARENT )
+                    new_out = cv2.warpAffine( out_face_bgr, face_mat, img_size, np.empty_like(img_bgr), cv2.WARP_INVERSE_MAP | cv2.INTER_CUBIC )
 
                     out_img =  np.clip( img_bgr*(1-img_face_mask_a) + (new_out*img_face_mask_a) , 0, 1.0 )
 

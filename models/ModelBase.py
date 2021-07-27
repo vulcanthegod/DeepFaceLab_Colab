@@ -22,6 +22,7 @@ from samplelib import SampleGeneratorBase
 
 class ModelBase(object):
     def __init__(self, is_training=False,
+                       is_exporting=False,
                        saved_models_path=None,
                        training_data_src_path=None,
                        training_data_dst_path=None,
@@ -36,6 +37,7 @@ class ModelBase(object):
                        silent_start=False,
                        **kwargs):
         self.is_training = is_training
+        self.is_exporting = is_exporting
         self.saved_models_path = saved_models_path
         self.training_data_src_path = training_data_src_path
         self.training_data_dst_path = training_data_dst_path
@@ -185,7 +187,9 @@ class ModelBase(object):
         self.write_preview_history = self.options.get('write_preview_history', False)
         self.target_iter = self.options.get('target_iter',0)
         self.random_flip = self.options.get('random_flip',True)
-
+        self.random_src_flip = self.options.get('random_src_flip', False)
+        self.random_dst_flip = self.options.get('random_dst_flip', True)
+        
         self.on_initialize()
         self.options['batch_size'] = self.batch_size
 
@@ -230,7 +234,7 @@ class ModelBase(object):
                 preview_id_counter = 0
                 while not choosed:
                     self.sample_for_preview = self.generate_next_samples()
-                    previews = self.get_static_previews()
+                    previews = self.get_history_previews()
 
                     io.show_image( wnd_name, ( previews[preview_id_counter % len(previews) ][1] *255).astype(np.uint8) )
 
@@ -256,7 +260,7 @@ class ModelBase(object):
                 self.sample_for_preview = self.generate_next_samples()
 
         try:
-            self.get_static_previews()
+            self.get_history_previews()
         except:
             self.sample_for_preview = self.generate_next_samples()
 
@@ -297,6 +301,14 @@ class ModelBase(object):
     def ask_random_flip(self):
         default_random_flip = self.load_or_def_option('random_flip', True)
         self.options['random_flip'] = io.input_bool("Flip faces randomly", default_random_flip, help_message="Predicted face will look more naturally without this option, but src faceset should cover all face directions as dst faceset.")
+    
+    def ask_random_src_flip(self):
+        default_random_src_flip = self.load_or_def_option('random_src_flip', False)
+        self.options['random_src_flip'] = io.input_bool("Flip SRC faces randomly", default_random_src_flip, help_message="Random horizontal flip SRC faceset. Covers more angles, but the face may look less naturally.")
+
+    def ask_random_dst_flip(self):
+        default_random_dst_flip = self.load_or_def_option('random_dst_flip', True)
+        self.options['random_dst_flip'] = io.input_bool("Flip DST faces randomly", default_random_dst_flip, help_message="Random horizontal flip DST faceset. Makes generalization of src->dst better, if src random flip is not enabled.")
 
     def ask_batch_size(self, suggest_batch_size=None, range=None):
         default_batch_size = self.load_or_def_option('batch_size', suggest_batch_size or self.batch_size)
@@ -337,7 +349,7 @@ class ModelBase(object):
         return ( ('loss_src', 0), ('loss_dst', 0) )
 
     #overridable
-    def onGetPreview(self, sample):
+    def onGetPreview(self, sample, for_history=False):
         #you can return multiple previews
         #return [ ('preview_name',preview_rgb), ... ]
         return []
@@ -367,8 +379,8 @@ class ModelBase(object):
     def get_previews(self):
         return self.onGetPreview ( self.last_sample )
 
-    def get_static_previews(self):
-        return self.onGetPreview (self.sample_for_preview)
+    def get_history_previews(self):
+        return self.onGetPreview (self.sample_for_preview, for_history=True)
 
     def get_preview_history_writer(self):
         if self.preview_history_writer is None:
@@ -474,7 +486,7 @@ class ModelBase(object):
                     plist += [ (bgr, self.get_strpath_storage_for_file('preview_%s.jpg' % (name) ) ) ]
 
             if self.write_preview_history:
-                previews = self.get_static_previews()
+                previews = self.get_history_previews()
                 for i in range(len(previews)):
                     name, bgr = previews[i]
                     path = self.preview_history_path / name
