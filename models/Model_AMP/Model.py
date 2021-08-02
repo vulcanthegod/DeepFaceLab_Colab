@@ -16,25 +16,19 @@ class AMPModel(ModelBase):
 
     #override
     def on_initialize_options(self):
-        device_config = nn.getCurrentDeviceConfig()
-
         default_resolution         = self.options['resolution']         = self.load_or_def_option('resolution', 224)
         default_face_type          = self.options['face_type']          = self.load_or_def_option('face_type', 'wf')
         default_models_opt_on_gpu  = self.options['models_opt_on_gpu']  = self.load_or_def_option('models_opt_on_gpu', True)
 
         default_ae_dims            = self.options['ae_dims']            = self.load_or_def_option('ae_dims', 256)
-
-        inter_dims = self.load_or_def_option('inter_dims', None)
-        if inter_dims is None:
-            inter_dims = self.options['ae_dims']
-        default_inter_dims         = self.options['inter_dims'] = inter_dims
+        default_inter_dims         = self.options['inter_dims']         = self.load_or_def_option('inter_dims', 1024)
 
         default_e_dims             = self.options['e_dims']             = self.load_or_def_option('e_dims', 64)
         default_d_dims             = self.options['d_dims']             = self.options.get('d_dims', None)
         default_d_mask_dims        = self.options['d_mask_dims']        = self.options.get('d_mask_dims', None)
         default_morph_factor       = self.options['morph_factor']       = self.options.get('morph_factor', 0.5)
         default_uniform_yaw        = self.options['uniform_yaw']        = self.load_or_def_option('uniform_yaw', False)
-
+        default_lr_dropout         = self.options['lr_dropout'] = self.load_or_def_option('lr_dropout', 'n')
         default_random_warp        = self.options['random_warp']        = self.load_or_def_option('random_warp', True)
         default_ct_mode            = self.options['ct_mode']            = self.load_or_def_option('ct_mode', 'none')
         default_clipgrad           = self.options['clipgrad']           = self.load_or_def_option('clipgrad', False)
@@ -79,6 +73,7 @@ class AMPModel(ModelBase):
 
         if self.is_first_run() or ask_override:
             self.options['uniform_yaw'] = io.input_bool ("Uniform yaw distribution of samples", default_uniform_yaw, help_message='Helps to fix blurry side faces due to small amount of them in the faceset.')
+            self.options['lr_dropout']  = io.input_str (f"Use learning rate dropout", default_lr_dropout, ['n','y','cpu'], help_message="When the face is trained enough, you can enable this option to get extra sharpness and reduce subpixel shake for less amount of iterations. Enabled it before `disable random warp` and before GAN. \nn - disabled.\ny - enabled\ncpu - enabled on CPU. This allows not to use extra VRAM, sacrificing 20% time of iteration.")
 
         default_gan_power          = self.options['gan_power']          = self.load_or_def_option('gan_power', 0.0)
         default_gan_patch_size     = self.options['gan_patch_size']     = self.load_or_def_option('gan_patch_size', self.options['resolution'] // 8)
@@ -98,7 +93,7 @@ class AMPModel(ModelBase):
                 gan_dims = np.clip ( io.input_int("GAN dimensions", default_gan_dims, add_info="4-512", help_message="The dimensions of the GAN network. The higher dimensions, the more VRAM is required. You can get sharper edges even at the lowest setting. Typical fine value is 16." ), 4, 512 )
                 self.options['gan_dims'] = gan_dims
 
-            self.options['ct_mode'] = io.input_str (f"Color transfer for src faceset", default_ct_mode, ['none','rct','lct','mkl','idt','sot'], help_message="Change color distribution of src samples close to dst samples. Try all modes to find the best.")
+            self.options['ct_mode'] = io.input_str (f"Color transfer for src faceset", default_ct_mode, ['none','rct','lct','mkl','idt','sot'], help_message="Change color distribution of src samples close to dst samples. If src faceset is deverse enough, then lct mode is fine in most cases.")
             self.options['clipgrad'] = io.input_bool ("Enable gradient clipping", default_clipgrad, help_message="Gradient clipping reduces chance of model collapse, sacrificing speed of training.")
 
         self.gan_model_changed = (default_gan_patch_size != self.options['gan_patch_size']) or (default_gan_dims != self.options['gan_dims'])
@@ -130,7 +125,10 @@ class AMPModel(ModelBase):
         if ct_mode == 'none':
             ct_mode = None
 
-        use_fp16 = self.is_exporting
+        use_fp16 = False
+        if self.is_exporting:
+            use_fp16 = io.input_bool ("Export quantized?", False, help_message='Makes the exported model faster. If you have problems, disable this option.')
+            
         conv_dtype = tf.float16 if use_fp16 else tf.float32
 
         class Downscale(nn.ModelBase):
@@ -290,16 +288,17 @@ class AMPModel(ModelBase):
             if self.is_training:
                 # Initialize optimizers
                 clipnorm = 1.0 if self.options['clipgrad'] else 0.0
-
+                lr_dropout = 0.3 if self.options['lr_dropout'] in ['y','cpu'] else 1.0
+                
                 self.all_weights = self.encoder.get_weights() + self.decoder.get_weights()
 
-                self.src_dst_opt = nn.AdaBelief(lr=5e-5, lr_dropout=0.3, clipnorm=clipnorm, name='src_dst_opt')
+                self.src_dst_opt = nn.AdaBelief(lr=5e-5, lr_dropout=lr_dropout, clipnorm=clipnorm, name='src_dst_opt')
                 self.src_dst_opt.initialize_variables (self.all_weights, vars_on_cpu=optimizer_vars_on_cpu)
                 self.model_filename_list += [ (self.src_dst_opt, 'src_dst_opt.npy') ]
 
                 if gan_power != 0:
                     self.GAN = nn.UNetPatchDiscriminator(patch_size=self.options['gan_patch_size'], in_ch=input_ch, base_ch=self.options['gan_dims'], name="GAN")
-                    self.GAN_opt = nn.AdaBelief(lr=5e-5, lr_dropout=0.3, clipnorm=clipnorm, name='GAN_opt')
+                    self.GAN_opt = nn.AdaBelief(lr=5e-5, lr_dropout=lr_dropout, clipnorm=clipnorm, name='GAN_opt')
                     self.GAN_opt.initialize_variables ( self.GAN.get_weights(), vars_on_cpu=optimizer_vars_on_cpu)
                     self.model_filename_list += [ [self.GAN, 'GAN.npy'],
                                                   [self.GAN_opt, 'GAN_opt.npy'] ]
@@ -622,24 +621,22 @@ class AMPModel(ModelBase):
         src_loss, dst_loss = self.train (warped_src, target_src, target_srcm, target_srcm_em, warped_dst, target_dst, target_dstm, target_dstm_em)
 
         for i in range(bs):
-            self.last_src_samples_loss.append ( (src_loss[i], warped_src[i], target_src[i], target_srcm[i], target_srcm_em[i]) )
-            self.last_dst_samples_loss.append ( (dst_loss[i], warped_dst[i], target_dst[i], target_dstm[i], target_dstm_em[i]) )
+            self.last_src_samples_loss.append ( (src_loss[i], target_src[i], target_srcm[i], target_srcm_em[i]) )
+            self.last_dst_samples_loss.append ( (dst_loss[i], target_dst[i], target_dstm[i], target_dstm_em[i]) )
 
         if len(self.last_src_samples_loss) >= bs*16:
             src_samples_loss = sorted(self.last_src_samples_loss, key=operator.itemgetter(0), reverse=True)
             dst_samples_loss = sorted(self.last_dst_samples_loss, key=operator.itemgetter(0), reverse=True)
 
-            warped_src        = np.stack( [ x[1] for x in src_samples_loss[:bs] ] )
-            target_src        = np.stack( [ x[2] for x in src_samples_loss[:bs] ] )
-            target_srcm       = np.stack( [ x[3] for x in src_samples_loss[:bs] ] )
-            target_srcm_em    = np.stack( [ x[4] for x in src_samples_loss[:bs] ] )
+            target_src        = np.stack( [ x[1] for x in src_samples_loss[:bs] ] )
+            target_srcm       = np.stack( [ x[2] for x in src_samples_loss[:bs] ] )
+            target_srcm_em    = np.stack( [ x[3] for x in src_samples_loss[:bs] ] )
 
-            warped_dst        = np.stack( [ x[1] for x in dst_samples_loss[:bs] ] )
-            target_dst        = np.stack( [ x[2] for x in dst_samples_loss[:bs] ] )
-            target_dstm       = np.stack( [ x[3] for x in dst_samples_loss[:bs] ] )
-            target_dstm_em    = np.stack( [ x[4] for x in dst_samples_loss[:bs] ] )
+            target_dst        = np.stack( [ x[1] for x in dst_samples_loss[:bs] ] )
+            target_dstm       = np.stack( [ x[2] for x in dst_samples_loss[:bs] ] )
+            target_dstm_em    = np.stack( [ x[3] for x in dst_samples_loss[:bs] ] )
 
-            src_loss, dst_loss = self.train (warped_src, target_src, target_srcm, target_srcm_em, warped_dst, target_dst, target_dstm, target_dstm_em)
+            src_loss, dst_loss = self.train (target_src, target_src, target_srcm, target_srcm_em, target_dst, target_dst, target_dstm, target_dstm_em)
             self.last_src_samples_loss = []
             self.last_dst_samples_loss = []
 
